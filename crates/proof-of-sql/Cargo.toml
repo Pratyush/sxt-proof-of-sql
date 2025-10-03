@@ -82,9 +82,17 @@ blitzar = ["dep:blitzar", "dep:merlin", "std", "nova-snark?/blitzar"]
 hyperkzg_proof = ["dep:nova-snark", "std", "dep:ff", "dep:halo2curves"]
 test = ["dep:rand", "std"]
 perf = ["blitzar", "cpu-perf"]
-cpu-perf = ["rayon", "ark-ec/parallel", "ark-poly/parallel" ]
+cpu-perf = ["rayon", "ark-ec/parallel", "ark-poly/parallel", "ark-ff/asm", ]
 rayon = ["dep:rayon", "std"]
 std = ["snafu/std", "ark-serialize/std", "dep:sysinfo" ]
+
+# On x86_64, *add* the `asm` feature
+[target.'cfg(target_arch = "x86_64")'.dependencies.halo2curves]
+workspace = true
+features = ["asm"]
+
+[target.'cfg(not(target_arch = "x86_64"))'.dependencies.halo2curves]
+workspace = true
 
 [lints]
 workspace = true
