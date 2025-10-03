@@ -20,7 +20,7 @@ datafusion = { workspace = true }
 getrandom = { workspace = true, features = ["js"] }
 indexmap = { workspace = true }
 postcard = { workspace = true }
-proof-of-sql = { workspace = true, features = ["arrow"] }
+proof-of-sql = { workspace = true, default-features = false, features = ["cpu-perf", "arrow", "cpu-perf"] }
 rand = { workspace = true, default-features = false }
 serde = { workspace = true }
 snafu = { workspace = true }
@@ -35,7 +35,7 @@ bincode = { workspace = true }
 bumpalo = { workspace = true }
 hex = { workspace = true }
 itertools = { workspace = true }
-proof-of-sql = { workspace = true, features = ["arrow", "hyperkzg_proof"] }
+proof-of-sql = { workspace = true, default-features = false, features = ["arrow", "hyperkzg_proof", "cpu-perf"] }
 
 [package.metadata.cargo-udeps.ignore]
 normal = ["clap", "postcard"]

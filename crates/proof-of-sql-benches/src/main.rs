@@ -29,7 +29,6 @@
 
 use ark_serialize::Validate;
 use ark_std::{rand, test_rng};
-use blitzar::{compute::init_backend, proof::InnerProductProof};
 use bumpalo::Bump;
 use clap::{ArgAction, Parser, ValueEnum};
 use datafusion::config::ConfigOptions;
@@ -43,16 +42,10 @@ use nova_snark::{
 };
 use proof_of_sql::{
     base::{commitment::CommitmentEvaluationProof, database::TableRef},
-    proof_primitive::{
-        dory::{
-            DoryEvaluationProof, DoryProverPublicSetup, DoryVerifierPublicSetup,
-            DynamicDoryEvaluationProof, ProverSetup, PublicParameters, VerifierSetup,
-        },
-        hyperkzg::{
-            deserialize_flat_compressed_hyperkzg_public_setup_from_reader,
-            nova_commitment_key_to_hyperkzg_public_setup, HyperKZGCommitmentEvaluationProof,
-            HyperKZGEngine,
-        },
+    proof_primitive::hyperkzg::{
+        deserialize_flat_compressed_hyperkzg_public_setup_from_reader,
+        nova_commitment_key_to_hyperkzg_public_setup, HyperKZGCommitmentEvaluationProof,
+        HyperKZGEngine,
     },
     sql::proof::VerifiableQueryResult,
 };
@@ -75,12 +68,6 @@ use utils::{
 enum CommitmentScheme {
     /// `All` runs all commitment schemes
     All,
-    /// `InnerProductProof` commitment scheme
-    InnerProductProof,
-    /// `Dory` commitment scheme
-    Dory,
-    /// `DynamicDory` commitment scheme
-    DynamicDory,
     /// `HyperKZG` commitment scheme
     HyperKZG,
 }
@@ -313,105 +300,26 @@ fn bench_by_schema<CP: CommitmentEvaluationProof>(
     }
 }
 
-/// Benchmarks the `InnerProductProof` scheme.
-///
-/// # Arguments
-/// * `cli` - A reference to the command line interface arguments.
-/// * `queries` - A slice of query entries to benchmark.
-#[tracing::instrument(name = "Inner Product Proof", level = "debug", skip_all)]
-fn bench_inner_product_proof(cli: &Cli, queries: &[QueryEntry]) {
-    bench_by_schema::<InnerProductProof>("Inner Product Proof", cli, queries, (), ());
-}
 
-/// Loads the Dory public parameters.
-///
-/// # Arguments
-/// * `cli` - A reference to the command line interface arguments.
-///
-/// # Panics
-/// * The optional Dory public parameters file is defined but can't be loaded.
-fn load_dory_public_parameters(cli: &Cli) -> PublicParameters {
-    if let Some(dory_public_params_path) = &cli.dory_public_params_path {
-        PublicParameters::load_from_file(std::path::Path::new(&dory_public_params_path))
-            .expect("Failed to load Dory public parameters")
-    } else {
-        PublicParameters::test_rand(cli.nu_sigma, &mut test_rng())
+use ark_bn254::G1Affine as Bn254G1Affine;
+use halo2curves::{
+    bn256::{Fq as Halo2Bn256Fq, G1Affine as Halo2Bn256G1Affine},
+    serde::SerdeObject,
+};
+
+/// Converts an Arkworks BN254 G1 Affine point to a Halo2 BN256 G1 Affine point.
+pub fn convert_to_halo2_bn256_g1_affine(point: &Bn254G1Affine) -> Halo2Bn256G1Affine {
+    if point.infinity {
+        return Halo2Bn256G1Affine::default();
     }
-}
 
-/// Loads the Dory setup for the given public parameters.
-///
-/// # Arguments
-/// * `public_parameters` - A reference to the public parameters.
-/// * `cli` - A reference to the command line interface arguments.
-///
-/// # Panics
-/// * The Blitzar handle path cannot be parsed from the string.
-fn load_dory_setup<'a>(
-    public_parameters: &'a PublicParameters,
-    cli: &'a Cli,
-) -> (ProverSetup<'a>, VerifierSetup) {
-    let (prover_setup, verifier_setup) = if let Some(blitzar_handle_path) = &cli.blitzar_handle_path
-    {
-        let handle =
-            blitzar::compute::MsmHandle::new_from_file(blitzar_handle_path.to_str().unwrap());
-        let prover_setup =
-            ProverSetup::from_public_parameters_and_blitzar_handle(public_parameters, handle);
-        let verifier_setup = VerifierSetup::from(public_parameters);
+    let x_bytes = bytemuck::cast::<[u64; 4], [u8; 32]>(point.x.0 .0);
+    let y_bytes = bytemuck::cast::<[u64; 4], [u8; 32]>(point.y.0 .0);
 
-        (prover_setup, verifier_setup)
-    } else {
-        let prover_setup = ProverSetup::from(public_parameters);
-        let verifier_setup = VerifierSetup::from(public_parameters);
-        (prover_setup, verifier_setup)
-    };
-
-    (prover_setup, verifier_setup)
-}
-
-/// Benchmarks the `Dory` scheme.
-///
-/// # Arguments
-/// * `cli` - A reference to the command line interface arguments.
-/// * `queries` - A slice of query entries to benchmark.
-#[tracing::instrument(name = "Dory", level = "debug", skip_all)]
-fn bench_dory(cli: &Cli, queries: &[QueryEntry]) {
-    let span = span!(Level::DEBUG, "setup", sigma = cli.nu_sigma).entered();
-    let public_parameters = load_dory_public_parameters(cli);
-    let (prover_setup, verifier_setup) = load_dory_setup(&public_parameters, cli);
-
-    let prover_public_setup = DoryProverPublicSetup::new(&prover_setup, cli.nu_sigma);
-    let verifier_public_setup = DoryVerifierPublicSetup::new(&verifier_setup, cli.nu_sigma);
-    span.exit();
-
-    bench_by_schema::<DoryEvaluationProof>(
-        "Dory",
-        cli,
-        queries,
-        prover_public_setup,
-        verifier_public_setup,
-    );
-}
-
-/// Benchmarks the `DynamicDory` scheme.
-///
-/// # Arguments
-/// * `cli` - A reference to the command line interface arguments.
-/// * `queries` - A slice of query entries to benchmark.
-#[tracing::instrument(name = "Dynamic Dory", level = "debug", skip_all)]
-fn bench_dynamic_dory(cli: &Cli, queries: &[QueryEntry]) {
-    let span = span!(Level::DEBUG, "setup", nu = cli.nu_sigma).entered();
-    let public_parameters = load_dory_public_parameters(cli);
-    let (prover_setup, verifier_setup) = load_dory_setup(&public_parameters, cli);
-    span.exit();
-
-    bench_by_schema::<DynamicDoryEvaluationProof>(
-        "Dynamic Dory",
-        cli,
-        queries,
-        &prover_setup,
-        &verifier_setup,
-    );
+    Halo2Bn256G1Affine {
+        x: Halo2Bn256Fq::from_raw_bytes_unchecked(&x_bytes),
+        y: Halo2Bn256Fq::from_raw_bytes_unchecked(&y_bytes),
+    }
 }
 
 /// Benchmarks the `HyperKZG` scheme.
@@ -435,7 +343,7 @@ fn bench_hyperkzg(cli: &Cli, queries: &[QueryEntry]) {
         let ck: CommitmentKey<HyperKZGEngine> = CommitmentKey::new(
             prover_setup
                 .iter()
-                .map(blitzar::compute::convert_to_halo2_bn256_g1_affine)
+                .map(convert_to_halo2_bn256_g1_affine)
                 .collect(),
             Affine::default(),
             G2Affine::default(),
@@ -472,9 +380,6 @@ fn main() {
         eprintln!("Warning: You are running in debug mode. For accurate benchmarking, run with `cargo run --release`.");
     }
 
-    init_backend();
-
-    setup_jaeger_tracing().expect("Failed to setup Jaeger tracing.");
 
     let cli = Cli::parse();
 
@@ -490,27 +395,17 @@ fn main() {
         let query = get_query(cli.query.to_string()).expect("Invalid query type specified.");
         [query].to_vec()
     };
+    for q in &queries {
+
+        println!("{}: {}", q.0, q.1);
+    }
 
     match cli.scheme {
         CommitmentScheme::All => {
-            bench_inner_product_proof(&cli, &queries);
-            bench_dory(&cli, &queries);
-            bench_dynamic_dory(&cli, &queries);
             bench_hyperkzg(&cli, &queries);
-        }
-        CommitmentScheme::InnerProductProof => {
-            bench_inner_product_proof(&cli, &queries);
-        }
-        CommitmentScheme::Dory => {
-            bench_dory(&cli, &queries);
-        }
-        CommitmentScheme::DynamicDory => {
-            bench_dynamic_dory(&cli, &queries);
         }
         CommitmentScheme::HyperKZG => {
             bench_hyperkzg(&cli, &queries);
         }
     }
-
-    stop_jaeger_tracing();
 }
