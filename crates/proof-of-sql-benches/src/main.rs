@@ -20,6 +20,7 @@
 //! - `-b` `--blitzar_handle_path` - Path to the Blitzar handle used for `DynamicDory` (Optional)
 //! - `-d` `--dory_public_params_path` - Path to the public parameters used for `DynamicDory` (Optional)
 //! - `-p` `--ppot_path` - Path to the Perpetual Powers of Tau file used for `HyperKZG` (Optional)
+//! - `--parquet-dir` - Directory to write generated tables as parquet files (Optional)
 //!
 //! # Optional File Path Environment Variables
 //! - `CSV_PATH` - Path to the CSV file for storing timing results
@@ -49,6 +50,10 @@ use proof_of_sql::{
     },
     sql::proof::VerifiableQueryResult,
 };
+use proof_of_sql_benchlib::{
+    all_queries, export_tables_to_parquet, generate_random_columns, get_query, BenchmarkAccessor,
+    QueryEntry,
+};
 use proof_of_sql_planner::sql_to_proof_plans;
 use rand::{rngs::StdRng, SeedableRng};
 use sqlparser::dialect::GenericDialect;
@@ -56,10 +61,7 @@ use std::{path::PathBuf, time::Instant};
 use tracing::{span, Level};
 mod utils;
 use utils::{
-    benchmark_accessor::BenchmarkAccessor,
     jaeger_setup::{setup_jaeger_tracing, stop_jaeger_tracing},
-    queries::{all_queries, get_query, QueryEntry},
-    random_util::generate_random_columns,
     results_io::append_to_csv,
 };
 
@@ -180,6 +182,10 @@ struct Cli {
     /// Optional path to the Perpetual Powers of Tau file used for `HyperKZG`
     #[arg(short, long, env)]
     ppot_path: Option<PathBuf>,
+
+    /// Optional directory for writing parquet files of generated benchmark tables
+    #[arg(long, env)]
+    parquet_dir: Option<PathBuf>,
 }
 
 /// Gets a random number generator based on the CLI arguments.
@@ -236,6 +242,14 @@ fn bench_by_schema<CP: CommitmentEvaluationProof>(
                 ),
                 &prover_setup,
             );
+        }
+
+        if let Some(parquet_dir) = &cli.parquet_dir {
+            if let Err(err) = export_tables_to_parquet(&accessor, tables, parquet_dir, query) {
+                if !cli.silence {
+                    eprintln!("Failed to export parquet tables for {query}: {err:?}");
+                }
+            }
         }
 
         let config = ConfigOptions::default();

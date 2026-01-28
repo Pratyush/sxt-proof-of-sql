@@ -1,0 +1,29 @@
+[package]
+name = "proof-of-sql-benchlib"
+edition.workspace = true
+exclude.workspace = true
+repository.workspace = true
+version.workspace = true
+license-file.workspace = true
+
+[dependencies]
+ark-bn254 = { workspace = true }
+ark-serialize = { workspace = true }
+arrow = { workspace = true }
+bytemuck = { workspace = true }
+datafusion = { workspace = true, default-features = false }
+halo2curves = { workspace = true, default-features = false }
+nova-snark = { workspace = true, default-features = false }
+parquet = { workspace = true, features = ["arrow"] }
+proof-of-sql = { path = "../proof-of-sql", default-features = false, features = ["arrow", "hyperkzg_proof", "cpu-perf"] }
+proof-of-sql-planner = { path = "../proof-of-sql-planner", default-features = false, features = ["cpu-perf"] }
+bumpalo = { workspace = true }
+indexmap = { version = "2.8", default-features = false }
+rand = { workspace = true, default-features = false }
+sqlparser = { workspace = true, default-features = false }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+ark-bls12-381 = { workspace = true }
