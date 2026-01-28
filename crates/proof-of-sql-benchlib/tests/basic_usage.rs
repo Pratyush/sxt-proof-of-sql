@@ -1,4 +1,7 @@
-use proof_of_sql_benchlib::{get_query, run_hyperkzg_bench, BenchOptions};
+use proof_of_sql_benchlib::{
+    get_query, run_bench_with_scheme, BenchOptions, HyperKzgBenchScheme,
+};
+use proof_of_sql::proof_primitive::hyperkzg::HyperKZGCommitmentEvaluationProof;
 use std::env;
 
 #[test]
@@ -22,7 +25,8 @@ fn benchmark_accessor_builds_filter_table() {
         iterations,
         table_size,
         rand_seed: Some(7),
-        parquet_dir: parquet_dir.clone().map(Into::into),
+        parquet_output_dir: parquet_dir.clone().map(Into::into),
+        parquet_dir: None,
     };
 
     if env::var("BENCH_PPOT_PATH").is_ok() && ppot_path.is_none() {
@@ -36,7 +40,7 @@ fn benchmark_accessor_builds_filter_table() {
         println!("parquet_dir: {dir}");
     }
 
-    let output = run_hyperkzg_bench(
+    let output = run_bench_with_scheme::<HyperKZGCommitmentEvaluationProof, HyperKzgBenchScheme>(
         &[query],
         &options,
         ppot_path.as_ref().map(|path| path.as_ref()),

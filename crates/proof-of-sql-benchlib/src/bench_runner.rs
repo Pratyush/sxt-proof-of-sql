@@ -37,6 +37,10 @@ pub struct BenchOptions {
     pub iterations: usize,
     pub table_size: usize,
     pub rand_seed: Option<u64>,
+    /// Optional directory for writing generated tables as parquet files.
+    pub parquet_output_dir: Option<PathBuf>,
+    /// Deprecated: use `parquet_output_dir`.
+    #[deprecated(note = "use parquet_output_dir")]
     pub parquet_dir: Option<PathBuf>,
 }
 
@@ -90,6 +94,15 @@ fn table_size_for_query(table_size: usize, query: &str) -> usize {
     }
 }
 
+pub trait BenchScheme<CP: CommitmentEvaluationProof> {
+    type OwnedSetup;
+
+    fn name() -> &'static str;
+    fn setup(options: &BenchOptions, ppot_path: Option<&Path>) -> Result<Self::OwnedSetup, BenchRunError>;
+    fn prover_setup<'a>(setup: &'a Self::OwnedSetup) -> CP::ProverPublicSetup<'a>;
+    fn verifier_setup<'a>(setup: &'a Self::OwnedSetup) -> CP::VerifierPublicSetup<'a>;
+}
+
 /// Converts an Arkworks BN254 G1 Affine point to a Halo2 BN256 G1 Affine point.
 fn convert_to_halo2_bn256_g1_affine(point: &Bn254G1Affine) -> Halo2Bn256G1Affine {
     if point.infinity {
@@ -137,19 +150,53 @@ fn load_hyperkzg_setup(
     Ok((prover_setup, vk))
 }
 
-pub fn run_hyperkzg_bench(
+pub struct HyperKzgBenchScheme;
+
+pub struct HyperKzgSetup {
+    prover_setup: Vec<Bn254G1Affine>,
+    verifier_setup: VerifierKey<HyperKZGEngine>,
+}
+
+impl BenchScheme<HyperKZGCommitmentEvaluationProof> for HyperKzgBenchScheme {
+    type OwnedSetup = HyperKzgSetup;
+
+    fn name() -> &'static str {
+        "HyperKZG"
+    }
+
+    fn setup(options: &BenchOptions, ppot_path: Option<&Path>) -> Result<Self::OwnedSetup, BenchRunError> {
+        let (prover_setup, verifier_setup) = load_hyperkzg_setup(options, ppot_path)?;
+        Ok(HyperKzgSetup {
+            prover_setup,
+            verifier_setup,
+        })
+    }
+
+    fn prover_setup<'a>(setup: &'a Self::OwnedSetup) -> <HyperKZGCommitmentEvaluationProof as CommitmentEvaluationProof>::ProverPublicSetup<'a> {
+        setup.prover_setup.as_slice()
+    }
+
+    fn verifier_setup<'a>(setup: &'a Self::OwnedSetup) -> <HyperKZGCommitmentEvaluationProof as CommitmentEvaluationProof>::VerifierPublicSetup<'a> {
+        &setup.verifier_setup
+    }
+}
+
+pub fn run_bench_with_scheme<CP, Scheme>(
     queries: &[QueryEntry],
     options: &BenchOptions,
     ppot_path: Option<&Path>,
-) -> Result<BenchRunOutput, BenchRunError> {
-    let (prover_setup, vk) = load_hyperkzg_setup(options, ppot_path)?;
-    let prover_setup_slice = prover_setup.as_slice();
-    let verifier_setup = &vk;
+) -> Result<BenchRunOutput, BenchRunError>
+where
+    CP: CommitmentEvaluationProof,
+    Scheme: BenchScheme<CP>,
+{
+    let setup = Scheme::setup(options, ppot_path)?;
+    let prover_setup = Scheme::prover_setup(&setup);
+    let verifier_setup = Scheme::verifier_setup(&setup);
 
     let mut results = Vec::new();
     let mut parquet_paths = Vec::new();
-    let mut accessor: BenchmarkAccessor<'_, <HyperKZGCommitmentEvaluationProof as CommitmentEvaluationProof>::Commitment> =
-        BenchmarkAccessor::default();
+    let mut accessor: BenchmarkAccessor<'_, CP::Commitment> = BenchmarkAccessor::default();
 
     let alloc = Bump::new();
     let mut rng = rng(options);
@@ -165,11 +212,16 @@ pub fn run_hyperkzg_bench(
                     table.columns.as_slice(),
                     table_size_for_query(options.table_size, query),
                 ),
-                &prover_setup_slice,
+                &prover_setup,
             );
         }
 
-        if let Some(parquet_dir) = &options.parquet_dir {
+        #[allow(deprecated)]
+        let parquet_output_dir = options
+            .parquet_output_dir
+            .as_ref()
+            .or(options.parquet_dir.as_ref());
+        if let Some(parquet_dir) = parquet_output_dir {
             let outputs = export_tables_to_parquet(&accessor, tables, parquet_dir, query)
                 .map_err(|err| BenchRunError::Parquet(format!("{err:?}")))?;
             parquet_paths.extend(outputs);
@@ -184,10 +236,10 @@ pub fn run_hyperkzg_bench(
         for plan in plans {
             for i in 0..options.iterations {
                 let time = Instant::now();
-                let res = VerifiableQueryResult::<HyperKZGCommitmentEvaluationProof>::new(
+                let res = VerifiableQueryResult::<CP>::new(
                     &plan,
                     &accessor,
-                    &prover_setup_slice,
+                    &prover_setup,
                     params,
                 )
                 .map_err(|err| BenchRunError::Proof(err.to_string()))?;
@@ -201,7 +253,7 @@ pub fn run_hyperkzg_bench(
                 let verify_elapsed = time.elapsed().as_millis();
 
                 results.push(BenchResult {
-                    commitment_scheme: "HyperKZG",
+                    commitment_scheme: Scheme::name(),
                     query: (*query).to_string(),
                     table_size: options.table_size,
                     iteration: i,
@@ -217,4 +269,16 @@ pub fn run_hyperkzg_bench(
         results,
         parquet_paths,
     })
+}
+
+pub fn run_hyperkzg_bench(
+    queries: &[QueryEntry],
+    options: &BenchOptions,
+    ppot_path: Option<&Path>,
+) -> Result<BenchRunOutput, BenchRunError> {
+    run_bench_with_scheme::<HyperKZGCommitmentEvaluationProof, HyperKzgBenchScheme>(
+        queries,
+        options,
+        ppot_path,
+    )
 }
