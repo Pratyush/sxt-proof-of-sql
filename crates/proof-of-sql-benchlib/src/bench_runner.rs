@@ -15,7 +15,10 @@ use nova_snark::{
     traits::{commitment::CommitmentEngineTrait, evaluation::EvaluationEngineTrait},
 };
 use proof_of_sql::{
-    base::{commitment::CommitmentEvaluationProof, database::TableRef},
+    base::{
+        commitment::{CommitmentEvaluationProof, InnerProductProof},
+        database::TableRef,
+    },
     proof_primitive::hyperkzg::{
         deserialize_flat_compressed_hyperkzg_public_setup_from_reader,
         nova_commitment_key_to_hyperkzg_public_setup, HyperKZGCommitmentEvaluationProof,
@@ -269,6 +272,28 @@ where
         results,
         parquet_paths,
     })
+}
+
+pub struct InnerProductBenchScheme;
+
+impl BenchScheme<InnerProductProof> for InnerProductBenchScheme {
+    type OwnedSetup = ();
+
+    fn name() -> &'static str {
+        "InnerProduct"
+    }
+
+    fn setup(_options: &BenchOptions, _ppot_path: Option<&Path>) -> Result<Self::OwnedSetup, BenchRunError> {
+        Ok(())
+    }
+
+    fn prover_setup<'a>(_setup: &'a Self::OwnedSetup) -> <InnerProductProof as CommitmentEvaluationProof>::ProverPublicSetup<'a> {
+        ()
+    }
+
+    fn verifier_setup<'a>(_setup: &'a Self::OwnedSetup) -> <InnerProductProof as CommitmentEvaluationProof>::VerifierPublicSetup<'a> {
+        ()
+    }
 }
 
 pub fn run_hyperkzg_bench(

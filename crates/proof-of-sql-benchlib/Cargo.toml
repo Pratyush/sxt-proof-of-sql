@@ -15,7 +15,7 @@ datafusion = { workspace = true, default-features = false }
 halo2curves = { workspace = true, default-features = false }
 nova-snark = { workspace = true, default-features = false }
 parquet = { workspace = true, features = ["arrow"] }
-proof-of-sql = { path = "../proof-of-sql", default-features = false, features = ["arrow", "hyperkzg_proof", "cpu-perf"] }
+proof-of-sql = { path = "../proof-of-sql", default-features = false, features = ["arrow", "hyperkzg_proof", "cpu-perf", "blitzar"] }
 proof-of-sql-planner = { path = "../proof-of-sql-planner", default-features = false, features = ["cpu-perf"] }
 bumpalo = { workspace = true }
 indexmap = { version = "2.8", default-features = false }

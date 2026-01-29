@@ -9,7 +9,7 @@ pub mod random_util;
 pub use benchmark_accessor::BenchmarkAccessor;
 pub use bench_runner::{
     run_bench_with_scheme, run_hyperkzg_bench, BenchOptions, BenchResult, BenchRunError,
-    BenchRunOutput, BenchScheme, HyperKzgBenchScheme,
+    BenchRunOutput, BenchScheme, HyperKzgBenchScheme, InnerProductBenchScheme,
 };
 pub use parquet_export::{export_tables_to_parquet, ParquetExportError};
 pub use queries::{all_queries, get_query, BaseEntry, QueryEntry, TableDefinition};
