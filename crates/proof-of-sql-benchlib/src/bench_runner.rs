@@ -18,13 +18,14 @@ use proof_of_sql::{
     base::{
         commitment::{CommitmentEvaluationProof, InnerProductProof},
         database::TableRef,
+        try_standard_binary_serialization,
     },
     proof_primitive::hyperkzg::{
         deserialize_flat_compressed_hyperkzg_public_setup_from_reader,
         nova_commitment_key_to_hyperkzg_public_setup, HyperKZGCommitmentEvaluationProof,
         HyperKZGEngine,
     },
-    sql::proof::VerifiableQueryResult,
+    sql::proof::{QueryProof, VerifiableQueryResult},
 };
 use proof_of_sql_planner::sql_to_proof_plans;
 use rand::{rngs::StdRng, SeedableRng};
@@ -55,6 +56,7 @@ pub struct BenchResult {
     pub iteration: usize,
     pub generate_proof_ms: u128,
     pub verify_proof_ms: u128,
+    pub proof_bytes: u64,
     pub num_query_results: usize,
 }
 
@@ -104,6 +106,7 @@ pub trait BenchScheme<CP: CommitmentEvaluationProof> {
     fn setup(options: &BenchOptions, ppot_path: Option<&Path>) -> Result<Self::OwnedSetup, BenchRunError>;
     fn prover_setup<'a>(setup: &'a Self::OwnedSetup) -> CP::ProverPublicSetup<'a>;
     fn verifier_setup<'a>(setup: &'a Self::OwnedSetup) -> CP::VerifierPublicSetup<'a>;
+    fn proof_bytes(proof: &QueryProof<CP>) -> Result<u64, BenchRunError>;
 }
 
 /// Converts an Arkworks BN254 G1 Affine point to a Halo2 BN256 G1 Affine point.
@@ -182,6 +185,12 @@ impl BenchScheme<HyperKZGCommitmentEvaluationProof> for HyperKzgBenchScheme {
     fn verifier_setup<'a>(setup: &'a Self::OwnedSetup) -> <HyperKZGCommitmentEvaluationProof as CommitmentEvaluationProof>::VerifierPublicSetup<'a> {
         &setup.verifier_setup
     }
+
+    fn proof_bytes(proof: &QueryProof<HyperKZGCommitmentEvaluationProof>) -> Result<u64, BenchRunError> {
+        let bytes = try_standard_binary_serialization(proof)
+            .map_err(|err| BenchRunError::Proof(err.to_string()))?;
+        Ok(bytes.len() as u64)
+    }
 }
 
 pub fn run_bench_with_scheme<CP, Scheme>(
@@ -246,6 +255,7 @@ where
                     params,
                 )
                 .map_err(|err| BenchRunError::Proof(err.to_string()))?;
+                let proof_bytes = Scheme::proof_bytes(&res.proof)?;
                 let generate_proof_elapsed = time.elapsed().as_millis();
 
                 let num_query_results = res.result.num_rows();
@@ -262,6 +272,7 @@ where
                     iteration: i,
                     generate_proof_ms: generate_proof_elapsed,
                     verify_proof_ms: verify_elapsed,
+                    proof_bytes,
                     num_query_results,
                 });
             }
@@ -293,6 +304,10 @@ impl BenchScheme<InnerProductProof> for InnerProductBenchScheme {
 
     fn verifier_setup<'a>(_setup: &'a Self::OwnedSetup) -> <InnerProductProof as CommitmentEvaluationProof>::VerifierPublicSetup<'a> {
         ()
+    }
+
+    fn proof_bytes(_proof: &QueryProof<InnerProductProof>) -> Result<u64, BenchRunError> {
+        Ok(0)
     }
 }
 
