@@ -13,4 +13,6 @@ pub use bench_runner::{
 };
 pub use parquet_export::{export_tables_to_parquet, ParquetExportError};
 pub use queries::{all_queries, get_query, BaseEntry, QueryEntry, TableDefinition};
-pub use random_util::{generate_random_columns, OptionalRandBound};
+pub use random_util::{
+    generate_columns_with_override, generate_random_columns, ColumnOverride, OptionalRandBound,
+};

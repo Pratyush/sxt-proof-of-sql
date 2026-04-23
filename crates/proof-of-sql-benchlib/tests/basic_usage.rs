@@ -27,6 +27,7 @@ fn benchmark_accessor_builds_filter_table() {
         rand_seed: Some(7),
         parquet_output_dir: parquet_dir.clone().map(Into::into),
         parquet_dir: None,
+        column_override: None,
     };
 
     if env::var("BENCH_PPOT_PATH").is_ok() && ppot_path.is_none() {

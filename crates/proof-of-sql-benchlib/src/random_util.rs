@@ -7,6 +7,16 @@ use rand::Rng;
 use sqlparser::ast::Ident;
 
 pub type OptionalRandBound = Option<fn(usize) -> i64>;
+
+/// Per-column deterministic override callback.
+///
+/// Given `(table_name, column_name, num_rows)`, return `Some(values)` to replace the
+/// column's generated data with the provided `i64` slice (must have exactly `num_rows`
+/// entries), or `None` to fall back to the RNG bound from the `ColumnDefinition`.
+/// Used by benches that need to compare the *same* row shape across systems
+/// (e.g. PK/FK join cardinality parity) without touching every call site.
+pub type ColumnOverride = fn(&str, &str, usize) -> Option<Vec<i64>>;
+
 /// # Panics
 ///
 /// Will panic if:
@@ -22,9 +32,43 @@ pub fn generate_random_columns<'a, S: Scalar>(
     columns: &[(&str, ColumnType, OptionalRandBound)],
     num_rows: usize,
 ) -> Vec<(Ident, Column<'a, S>)> {
+    generate_columns_with_override(alloc, rng, "", columns, num_rows, None)
+}
+
+/// Same as `generate_random_columns`, but checks `column_override` first for each column
+/// and uses the override's `Vec<i64>` when it returns `Some`. Only `BigInt` columns are
+/// supported for override; other types panic if override is present.
+#[expect(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::too_many_lines
+)]
+pub fn generate_columns_with_override<'a, S: Scalar>(
+    alloc: &'a Bump,
+    rng: &mut impl Rng,
+    table_name: &str,
+    columns: &[(&str, ColumnType, OptionalRandBound)],
+    num_rows: usize,
+    column_override: Option<ColumnOverride>,
+) -> Vec<(Ident, Column<'a, S>)> {
     columns
         .iter()
         .map(|(id, ty, bound)| {
+            if let Some(overrider) = column_override {
+                if let Some(values) = overrider(table_name, id, num_rows) {
+                    assert_eq!(
+                        values.len(),
+                        num_rows,
+                        "column_override for `{table_name}.{id}` must return exactly num_rows values"
+                    );
+                    assert!(
+                        matches!(ty, ColumnType::BigInt),
+                        "column_override only supports BigInt columns; `{table_name}.{id}` is {ty:?}"
+                    );
+                    let slice = alloc.alloc_slice_fill_iter(values.into_iter());
+                    return (Ident::new(*id), Column::BigInt(slice));
+                }
+            }
             (
                 Ident::new(*id),
                 match (ty, bound) {

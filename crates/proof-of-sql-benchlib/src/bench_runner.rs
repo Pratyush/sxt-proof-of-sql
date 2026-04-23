@@ -1,4 +1,6 @@
-use crate::{export_tables_to_parquet, generate_random_columns, BenchmarkAccessor, QueryEntry};
+use crate::{
+    export_tables_to_parquet, generate_columns_with_override, BenchmarkAccessor, QueryEntry,
+};
 use ark_bn254::G1Affine as Bn254G1Affine;
 use ark_serialize::Validate;
 use bumpalo::Bump;
@@ -46,6 +48,10 @@ pub struct BenchOptions {
     /// Deprecated: use `parquet_output_dir`.
     #[deprecated(note = "use parquet_output_dir")]
     pub parquet_dir: Option<PathBuf>,
+    /// Optional per-(table, column) override producing concrete `Vec<i64>` data.
+    /// Returning `Some(values)` replaces the RNG-generated column; returning `None`
+    /// falls back to the column's `ColumnDefinition` bound.
+    pub column_override: Option<fn(&str, &str, usize) -> Option<Vec<i64>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -216,14 +222,17 @@ where
     for (query, sql, tables, params) in queries {
         // Build tables
         for table in tables {
+            let columns_built = generate_columns_with_override(
+                &alloc,
+                &mut rng,
+                table.name,
+                table.columns.as_slice(),
+                table_size_for_query(options.table_size, query),
+                options.column_override,
+            );
             accessor.insert_table(
                 TableRef::from_names(None, table.name),
-                &generate_random_columns(
-                    &alloc,
-                    &mut rng,
-                    table.columns.as_slice(),
-                    table_size_for_query(options.table_size, query),
-                ),
+                &columns_built,
                 &prover_setup,
             );
         }
